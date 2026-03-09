@@ -25,17 +25,6 @@ PgPushex is a powerful Elixir library that revolutionizes how you manage databas
 
 ---
 
-## Why PgPushex?
-
-### The Problem with Traditional Migrations
-
-Traditional Ecto migrations require you to:
-1. Generate a new migration file for every schema change
-2. Manually write `ALTER TABLE` statements
-3. Keep track of what changes have been applied
-4. Handle column renames carefully (data loss!)
-5. Manage foreign key dependencies manually
-
 ### The PgPushex Solution
 
 With PgPushex, you:
@@ -82,7 +71,7 @@ mix deps.get
 
 ### Requirements
 
-- Elixir ~> 1.19
+- Elixir ~> 1.15
 - PostgreSQL 12+
 - Ecto ~> 3.10
 

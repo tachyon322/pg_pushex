@@ -1,7 +1,7 @@
 defmodule PgPushex.MixProject do
   use Mix.Project
 
-  @source_url "https://github.com/yourusername/pg_pushex"
+  @source_url "https://github.com/tachyon322/pg_pushex"
   @version "0.1.0"
 
   def project do
@@ -48,7 +48,7 @@ defmodule PgPushex.MixProject do
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
       },
-      maintainers: ["PgPushex Contributors"]
+      maintainers: ["Denis Cheremnykh"]
     ]
   end
 

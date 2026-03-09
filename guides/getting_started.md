@@ -6,7 +6,7 @@ This guide will walk you through setting up PgPushex in your Elixir application 
 
 Before you begin, ensure you have:
 
-- Elixir 1.19 or later installed
+- Elixir 1.15 or later installed
 - PostgreSQL 12 or later running
 - A working Ecto repository in your project
 - Basic familiarity with Elixir and Ecto
