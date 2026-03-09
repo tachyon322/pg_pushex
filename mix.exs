@@ -58,10 +58,20 @@ defmodule PgPushex.MixProject do
       extras: [
         "README.md",
         "CHANGELOG.md",
-        "LICENSE"
+        "LICENSE",
+        "guides/getting_started.md",
+        "guides/schema_dsl.md",
+        "guides/advanced_patterns.md",
+        "guides/migrating_from_ecto.md"
       ],
       groups_for_extras: [
         Introduction: ["README.md"],
+        Guides: [
+          "guides/getting_started.md",
+          "guides/schema_dsl.md",
+          "guides/advanced_patterns.md",
+          "guides/migrating_from_ecto.md"
+        ],
         Changelog: ["CHANGELOG.md"]
       ],
       groups_for_modules: [

@@ -272,8 +272,19 @@ table :users do
   # ...
 end
 
-# 2. PgPushex will detect and ask:
-# "Rename email to email_address?"
+# 2. PgPushex will detect and prompt:
+#
+#   Column changes detected in table :users
+#
+#     Dropped: email (:string)
+#     Added:   email_address (:string)
+#
+#   How would you like to proceed?
+#
+#     1. Drop old columns and create new ones (DATA LOSS)
+#     2. Rename email to email_address
+#     3. Abort
+#
 # Choose option 2 to preserve data
 ```
 

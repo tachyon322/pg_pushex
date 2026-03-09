@@ -102,11 +102,15 @@ end
 Add a partial index for better performance:
 
 ```elixir
+# Note: execute/1 runs BEFORE table creation, so this will fail on first push
+# if the posts table doesn't exist yet. Run this manually after the initial push:
 execute """
-CREATE INDEX posts_not_deleted_index ON posts (id) 
+CREATE INDEX IF NOT EXISTS posts_not_deleted_index ON posts (id) 
 WHERE deleted_at IS NULL
 """
 ```
+
+> **Note:** Because `execute/1` runs before all table creations, the SQL above will fail on the very first push when the `posts` table doesn't yet exist. After the initial push, re-running `mix pg_pushex.push` will execute it successfully (the table will already exist). Use `IF NOT EXISTS` to make it idempotent.
 
 ## Tenant Isolation (Multi-tenancy)
 
@@ -134,12 +138,15 @@ table :tasks do
   index :tasks_tenant_project_index, [:tenant_id, :project_id]
 end
 
-# Enable RLS
+# WARNING: execute/1 runs BEFORE table creations.
+# These statements will fail on the first push (tables don't exist yet).
+# They will succeed on subsequent pushes. Alternatively, run them manually
+# after the initial push.
 execute "ALTER TABLE projects ENABLE ROW LEVEL SECURITY"
 execute "ALTER TABLE tasks ENABLE ROW LEVEL SECURITY"
 
 # Create policies
-execute "CREATE POLICY tenant_isolation_projects ON projects USING (tenant_id = current_setting('app.current_tenant')::uuid)"
+execute "CREATE POLICY IF NOT EXISTS tenant_isolation_projects ON projects USING (tenant_id = current_setting('app.current_tenant')::uuid)"
 ```
 
 ## Versioning and Auditing
@@ -172,6 +179,12 @@ end
 
 ### Basic Full-text Search
 
+> **Known limitations:**
+> - `:tsvector` columns are created correctly but are not read back during introspection, causing a perpetual diff on every push. Avoid using `:tsvector` in actively-pushed tables until this is resolved.
+> - `execute/1` statements run **before** any table creations, so they cannot reference tables defined in the same schema. Use the `index/3` macro inside the table block for standard B-tree/GIN indexes, or accept that a raw `execute` GIN index will fail on the first push (the table won't exist yet at execution time).
+
+A safer alternative using only the standard index macro (no GIN):
+
 ```elixir
 extension "uuid-ossp"
 
@@ -180,13 +193,16 @@ table :documents do
   column :title, :string, null: false
   column :content, :text, null: false
   
-  column :search_vector, :tsvector,
-    generated_as: fragment("to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))")
-  
   timestamps()
+  
+  index :documents_title_index, [:title]
 end
+```
 
-execute "CREATE INDEX documents_search_index ON documents USING GIN (search_vector)"
+For GIN full-text search, create the index manually after the initial push:
+
+```bash
+psql -d myapp_dev -c "CREATE INDEX IF NOT EXISTS documents_search_index ON documents USING GIN (to_tsvector('english', title || ' ' || content));"
 ```
 
 ## Performance Optimization

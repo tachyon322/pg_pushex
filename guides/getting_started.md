@@ -163,7 +163,7 @@ You'll see:
 ```
 Calculating diff...
 Applying changes...
-Executing: CREATE TABLE "posts" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "title" varchar(255) NOT NULL, "body" text, "published_at" timestamp with time zone, "user_id" uuid, "inserted_at" timestamp with time zone NOT NULL, "updated_at" timestamp with time zone NOT NULL, FOREIGN KEY ("user_id") REFERENCES "users"(id) ON DELETE CASCADE)
+Executing: CREATE TABLE "posts" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "title" text NOT NULL, "body" text, "published_at" timestamp with time zone, "user_id" uuid, "inserted_at" timestamp with time zone NOT NULL, "updated_at" timestamp with time zone NOT NULL, FOREIGN KEY ("user_id") REFERENCES "users"(id) ON DELETE CASCADE)
 Executing: CREATE INDEX "posts_user_id_index" ON "posts" ("user_id")
 Push successful!
 ```
@@ -178,7 +178,7 @@ Notice how PgPushex:
 If you prefer to generate traditional Ecto migration files:
 
 ```bash
-mix pg_pushex.generate -r MyApp.Repo -s MyApp.Schema
+mix pg_pushex.generate
 ```
 
 This creates a file in `priv/repo/migrations/` that you can review and run with `mix ecto.migrate`.

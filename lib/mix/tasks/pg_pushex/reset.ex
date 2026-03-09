@@ -14,14 +14,17 @@ defmodule Mix.Tasks.PgPushex.Reset do
 
   ## Usage
 
-      mix pg_pushex.reset -r MyApp.Repo -s MyApp.Schema
-      mix pg_pushex.reset --repo MyApp.Repo --schema MyApp.Schema
+      mix pg_pushex.reset -r MyApp.Repo
+      mix pg_pushex.reset --repo MyApp.Repo
 
   ## Configuration
 
       config :pg_pushex,
         repo: MyApp.Repo,
         schema: MyApp.Schema
+
+  The schema module is always taken from application config (`config :pg_pushex, schema:`).
+  The `-s` flag is accepted but has no effect on this task.
 
   ## When to Use
 
@@ -45,10 +48,10 @@ defmodule Mix.Tasks.PgPushex.Reset do
 
   @usage """
   Usage:
-    mix pg_pushex.reset -r MyApp.Repo -s MyApp.Schema
-    mix pg_pushex.reset --repo MyApp.Repo --schema MyApp.Schema
+    mix pg_pushex.reset -r MyApp.Repo
+    mix pg_pushex.reset --repo MyApp.Repo
 
-  Fallback configuration:
+  Schema is taken from application config:
     config :pg_pushex,
       repo: MyApp.Repo,
       schema: MyApp.Schema

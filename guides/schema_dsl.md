@@ -138,13 +138,15 @@ column :author_id, :uuid,
 
 **Foreign Key Actions:**
 
-| Action | Description |
-|--------|-------------|
-| `:nothing` | No action (default) |
-| `:delete_all` / `:cascade` | Delete referencing rows |
-| `:nilify_all` / `:set_null` | Set FK column to NULL |
-| `:restrict` | Prevent the operation |
-| `:update_all` | Update referencing rows |
+| Action | SQL | Description |
+|--------|-----|-------------|
+| `:nothing` | (none) | No action (default) |
+| `:delete_all` | ON DELETE CASCADE | Delete referencing rows |
+| `:nilify_all` | ON DELETE SET NULL | Set FK column to NULL |
+| `:restrict` | ON DELETE/UPDATE RESTRICT | Prevent the operation |
+| `:update_all` | ON UPDATE CASCADE | Cascade updates to referencing rows |
+
+> **Note:** Only these exact atoms are valid in the DSL. `:cascade` and `:set_null` are not accepted — use `:delete_all` and `:nilify_all` instead.
 
 ### Enum Columns
 
@@ -161,16 +163,14 @@ This creates a PostgreSQL ENUM type named `{table}_{column}_enum`.
 # Computed from other columns
 column :full_name, :string,
   generated_as: fragment("first_name || ' ' || last_name")
-
-# More complex expression
-column :search_vector, :tsvector,
-  generated_as: fragment("to_tsvector('english', title || ' ' || body)")
 ```
 
 **Important:** Generated columns:
 - Cannot have a `:default` value
 - Are always STORED (not virtual)
 - Can be indexed like regular columns
+
+> **Note:** Avoid using `:tsvector` as the type for generated columns. Due to a known introspection limitation, `:tsvector` columns are not read back correctly from the database, which causes a perpetual diff on every push.
 
 ## Timestamps
 
@@ -257,6 +257,8 @@ execute "CREATE INDEX CONCURRENTLY my_index ON users USING GIN (data)"
 
 **⚠️ Warning:** SQL in `execute/1` runs on **every** push, not just when needed. Ensure your SQL is idempotent.
 
+**⚠️ Order:** All `execute/1` statements run **before** any table creations or modifications. They cannot reference tables that are being created in the same push.
+
 ### `fragment/1`
 
 Creates a SQL fragment for use in defaults or generated columns.
@@ -284,9 +286,9 @@ defmodule MyApp.CompleteSchema do
   # Users table
   table :users do
     column :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
-    column :email, :citext, null: false
+    column :email, :string, null: false  # use :citext only if aware of known limitation (see below)
     column :name, :string, null: false
-    column :settings, :map, default: %{}
+    column :settings, :map  # map defaults are not supported — omit default for :map columns
     
     timestamps()
     
@@ -356,6 +358,8 @@ end
 | `:vector` | pgvector | Vector embeddings |
 | `:tsvector` | built-in | Full-text search vector |
 | `:citext` | citext | Case-insensitive text |
+
+> **Known limitation:** `:citext` and `:tsvector` columns are created correctly on first push, but are **not read back** during database introspection. This causes a perpetual diff — PgPushex will attempt to re-add these columns on every subsequent push. Avoid using them in actively-pushed tables until this is resolved.
 
 ### Type Aliases
 

@@ -114,11 +114,24 @@ defmodule MyApp.Schema do
 end
 ```
 
-### 2. Configure (Optional)
+### 2. Configure
 
 In `config/config.exs`:
 
 ```elixir
+import Config
+
+config :my_app,
+  ecto_repos: [MyApp.Repo]
+
+config :my_app, MyApp.Repo,
+  username: "postgres",
+  password: "postgres",
+  database: "my_app_dev",
+  hostname: "localhost",
+  port: 5432,
+  pool_size: 10
+
 config :pg_pushex,
   repo: MyApp.Repo,
   schema: MyApp.Schema
@@ -128,10 +141,16 @@ config :pg_pushex,
 
 ```bash
 # Push schema directly to database
-mix pg_pushex.push -r MyApp.Repo -s MyApp.Schema
+mix pg_pushex.push
 
 # Or generate an Ecto migration file
-mix pg_pushex.generate -r MyApp.Repo -s MyApp.Schema
+mix pg_pushex.generate
+```
+
+You can also pass repo and schema explicitly (overrides config):
+
+```bash
+mix pg_pushex.push -r MyApp.Repo -s MyApp.Schema
 ```
 
 ---
@@ -204,9 +223,11 @@ table :comments do
   column :editor_id, :uuid, 
     references: :users, 
     on_delete: :nilify_all,
-    on_update: :update_all
+    on_update: :restrict
 end
 ```
+
+> **Note:** Changing `on_delete`/`on_update` on an **existing** FK constraint is not currently supported. PgPushex does not track constraint names, so altering FK actions requires a manual `DROP CONSTRAINT` + `ADD CONSTRAINT`. This only affects schema changes — initial FK creation works correctly.
 
 ### Timestamps
 
@@ -244,19 +265,21 @@ end
 
 ### Custom SQL
 
+> **Warning:** SQL passed to `execute/1` is executed on **every** `mix pg_pushex.push`, regardless of whether the database is already in sync. Make sure your SQL is idempotent (safe to run multiple times).
+
+> **Note:** All `execute/1` statements run **before** table creations and modifications — they cannot reference tables that are being created in the same push.
+
 ```elixir
 defmodule MyApp.Schema do
   use PgPushex.Schema
 
+  # Runs before any table operations on every push — must be idempotent
   execute "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""
   
   table :events do
     column :id, :uuid, primary_key: true
     column :data, :map
   end
-  
-  # Run after table creation
-  execute "CREATE INDEX events_data_gin ON events USING GIN (data)"
 end
 ```
 
@@ -312,8 +335,10 @@ Enter choice: 2
 ⚠️ **DESTRUCTIVE - ALL DATA LOST**
 
 ```bash
-mix pg_pushex.reset -r MyApp.Repo -s MyApp.Schema
+mix pg_pushex.reset -r MyApp.Repo
 ```
+
+> **Note:** `reset` drops and recreates the database, then runs `mix pg_pushex.push`. The schema module is taken from `config :pg_pushex, schema:` — the `-s` flag has no effect on this task.
 
 ---
 
@@ -348,6 +373,8 @@ mix pg_pushex.reset -r MyApp.Repo -s MyApp.Schema
 | `:vector` | pgvector | `column :embedding, :vector, size: 1536` |
 | `:tsvector` | built-in | Full-text search |
 | `:citext` | citext | Case-insensitive text |
+
+> **Known limitation:** `:citext` and `:tsvector` columns are accepted by the DSL and created correctly, but they are **not read back** during database introspection. This causes a perpetual diff — PgPushex will attempt to re-add these columns on every push. Avoid using these types in tables that are pushed repeatedly until this is resolved.
 
 ### Enums
 
@@ -517,11 +544,11 @@ psql -d myapp_dev -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 ### Column rename not detected
 
-PgPushex only detects renames when:
+PgPushex only detects renames when both of these are true:
 - A column is dropped AND
-- A column is added in the same table
+- A column is added in the **same table** in the same push
 
-If types differ significantly, it may not suggest rename.
+Both conditions must occur together. If you only add or only remove a column, no rename prompt is shown. Column types do not affect whether a rename is suggested — any dropped+added pair in the same table triggers the interactive prompt.
 
 ### Reset stuck in transaction
 
