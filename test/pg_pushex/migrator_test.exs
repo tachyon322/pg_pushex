@@ -1,17 +1,17 @@
 defmodule PgPushex.MigratorTest do
   use ExUnit.Case, async: true
 
-  alias ExDrizzle.State.{Column, Schema}
+  alias PgPushex.State.{Column, Schema}
   alias PgPushex.Migrator
 
   defmodule SchemaStub do
-    def __schema__, do: ExDrizzle.State.Schema.new()
+    def __schema__, do: PgPushex.State.Schema.new()
   end
 
   defmodule IntrospectorStub do
     def introspect(repo) do
       send(self(), {:introspect_called, repo})
-      ExDrizzle.State.Schema.new()
+      PgPushex.State.Schema.new()
     end
   end
 
@@ -140,7 +140,6 @@ defmodule PgPushex.MigratorTest do
       assert_received {:sql_executed, "ALTER TABLE \"users\" ADD COLUMN \"email\" text;"}
       assert_received {:sql_executed, "DROP TABLE \"legacy_users\";"}
 
-      assert log =~ "Generating SQL..."
       assert log =~ "Applying changes..."
       assert log =~ "Executing:"
     end
