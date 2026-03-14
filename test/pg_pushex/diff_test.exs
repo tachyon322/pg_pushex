@@ -671,8 +671,11 @@ defmodule PgPushex.DiffTest do
       operations = Diff.compare(current_schema, desired_schema)
 
       assert Enum.any?(operations, fn
-               {:alter_column, :users, :post_id, [{:on_delete, :restrict, :posts}]} -> true
-               _ -> false
+               {:alter_column, :users, :post_id, [{:on_delete, :restrict, :posts, :id, nil}]} ->
+                 true
+
+               _ ->
+                 false
              end)
     end
 
@@ -711,8 +714,11 @@ defmodule PgPushex.DiffTest do
       operations = Diff.compare(current_schema, desired_schema)
 
       assert Enum.any?(operations, fn
-               {:alter_column, :users, :post_id, [{:on_update, :cascade, :posts}]} -> true
-               _ -> false
+               {:alter_column, :users, :post_id, [{:on_update, :cascade, :posts, :id, nil}]} ->
+                 true
+
+               _ ->
+                 false
              end)
     end
   end

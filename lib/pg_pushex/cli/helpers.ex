@@ -168,7 +168,7 @@ defmodule PgPushex.CLI.Helpers do
   def print_error_and_usage(message, usage) do
     Mix.shell().error([:red, "Error: #{message}"])
     Mix.shell().info(usage)
-    System.halt(1)
+    Mix.raise(message)
   end
 
   @doc """

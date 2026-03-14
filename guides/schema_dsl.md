@@ -93,9 +93,12 @@ column :name, :type, option: value
 | `:default` | any | `nil` | Default value or `fragment/1` |
 | `:primary_key` | boolean | `false` | Mark as primary key |
 | `:references` | atom | `nil` | Foreign key reference table |
+| `:referenced_column` | atom | `:id` | Foreign key reference column |
 | `:on_delete` | atom | `:nothing` | FK delete action |
 | `:on_update` | atom | `:nothing` | FK update action |
 | `:size` | integer | `nil` | Size for string/vector |
+| `:precision` | integer | `nil` | Precision for numeric/decimal |
+| `:scale` | integer | `nil` | Scale for numeric/decimal |
 | `:enum` | [String.t()] | `nil` | Enum values |
 | `:generated_as` | fragment | `nil` | Computed column expression |
 
@@ -130,10 +133,13 @@ column :user_id, :uuid, references: :users
 column :post_id, :uuid, references: :posts, on_delete: :delete_all
 
 # With custom actions
-column :author_id, :uuid, 
+column :author_id, :uuid,
   references: :users,
   on_delete: :nilify_all,
   on_update: :update_all
+
+# Reference a non-primary key column (must be UNIQUE)
+column :user_email, :string, references: :users, referenced_column: :email
 ```
 
 **Foreign Key Actions:**
@@ -147,6 +153,38 @@ column :author_id, :uuid,
 | `:update_all` | ON UPDATE CASCADE | Cascade updates to referencing rows |
 
 > **Note:** Only these exact atoms are valid in the DSL. `:cascade` and `:set_null` are not accepted — use `:delete_all` and `:nilify_all` instead.
+
+#### Referencing Non-Primary Key Columns
+
+By default, foreign keys reference the primary key (`:id`) of the target table. You can reference any **UNIQUE** column using the `:referenced_column` option:
+
+```elixir
+table :users do
+  column :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+  column :email, :string, null: false
+
+  unique_index :users_email_unique, [:email]
+end
+
+table :user_sessions do
+  column :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+
+  # Reference users.email instead of users.id
+  column :user_email, :string,
+    references: :users,
+    referenced_column: :email,
+    on_delete: :delete_all
+
+  column :token, :string, null: false
+  column :expires_at, :utc_datetime
+
+  timestamps()
+
+  index :user_sessions_email_index, [:user_email]
+end
+```
+
+**Important:** The referenced column must have a `UNIQUE` constraint (via `unique_index` or `primary_key`).
 
 ### Enum Columns
 

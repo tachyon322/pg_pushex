@@ -90,11 +90,19 @@ defmodule PgPushex.SQL.Postgres do
           ", PRIMARY KEY (#{pk_cols})"
       end
 
-    ["CREATE TABLE #{quote_ident(table_name)} (#{columns_sql}#{pk_fragment});"]
+    create_table_sql = ["CREATE TABLE #{quote_ident(table_name)} (#{columns_sql}#{pk_fragment});"]
+
+    # Also generate CREATE INDEX statements for any indexes
+    index_sqls =
+      table.indexes
+      |> Enum.map(&{:create_index, table_name, &1})
+      |> Enum.flat_map(&operation_to_sql/1)
+
+    create_table_sql ++ index_sqls
   end
 
   defp operation_to_sql({:drop_table, table_name}) do
-    ["DROP TABLE #{quote_ident(table_name)};"]
+    ["DROP TABLE #{quote_ident(table_name)} CASCADE;"]
   end
 
   defp operation_to_sql({:add_column, table_name, %Column{} = column}) do
@@ -104,7 +112,7 @@ defmodule PgPushex.SQL.Postgres do
           %ForeignKey{
             column_name: column.name,
             referenced_table: column.references,
-            referenced_column: :id,
+            referenced_column: column.referenced_column || :id,
             on_delete: column.on_delete,
             on_update: column.on_update
           }
@@ -205,25 +213,77 @@ defmodule PgPushex.SQL.Postgres do
   end
 
   defp alter_column_change_sql(table_name, column_name, {:references, nil}) do
-    "-- DROP FOREIGN KEY for #{quote_ident(table_name)}.#{quote_ident(column_name)} is not fully supported yet without constraint name"
+    raise ArgumentError,
+          "Cannot drop foreign key without constraint name for #{table_name}.#{column_name}. " <>
+            "This should have been handled by {:drop_fk, constraint_name} operation."
   end
 
   defp alter_column_change_sql(table_name, column_name, {:references, ref_table}) do
     "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(ref_table)}(id);"
   end
 
-  defp alter_column_change_sql(table_name, column_name, {:on_delete, action, referenced_table}) do
+  defp alter_column_change_sql(
+         table_name,
+         column_name,
+         {:on_delete, action, referenced_table, referenced_column, nil}
+       ) do
+    # New FK without constraint name - Postgres generates name automatically
     on_delete_sql = fk_action_sql("DELETE", action)
+    ref_col = referenced_column || :id
 
-    "-- Note: You must manually drop the old foreign key constraint for #{quote_ident(table_name)}.#{quote_ident(column_name)}\n" <>
-      "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(id)#{on_delete_sql};"
+    "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(#{quote_ident(ref_col)})#{on_delete_sql};"
   end
 
-  defp alter_column_change_sql(table_name, column_name, {:on_update, action, referenced_table}) do
-    on_update_sql = fk_action_sql("UPDATE", action)
+  defp alter_column_change_sql(
+         table_name,
+         column_name,
+         {:on_delete, action, referenced_table, referenced_column, constraint_name}
+       ) do
+    # Existing FK with constraint - need to DROP then ADD
+    on_delete_sql = fk_action_sql("DELETE", action)
+    ref_col = referenced_column || :id
 
-    "-- Note: You must manually drop the old foreign key constraint for #{quote_ident(table_name)}.#{quote_ident(column_name)}\n" <>
-      "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(id)#{on_update_sql};"
+    drop_sql =
+      "ALTER TABLE #{quote_ident(table_name)} DROP CONSTRAINT IF EXISTS #{quote_ident(constraint_name)};"
+
+    add_sql =
+      "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(#{quote_ident(ref_col)})#{on_delete_sql};"
+
+    drop_sql <> "\n" <> add_sql
+  end
+
+  defp alter_column_change_sql(
+         table_name,
+         column_name,
+         {:on_update, action, referenced_table, referenced_column, nil}
+       ) do
+    # New FK without constraint name - Postgres generates name automatically
+    on_update_sql = fk_action_sql("UPDATE", action)
+    ref_col = referenced_column || :id
+
+    "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(#{quote_ident(ref_col)})#{on_update_sql};"
+  end
+
+  defp alter_column_change_sql(
+         table_name,
+         column_name,
+         {:on_update, action, referenced_table, referenced_column, constraint_name}
+       ) do
+    # Existing FK with constraint - need to DROP then ADD
+    on_update_sql = fk_action_sql("UPDATE", action)
+    ref_col = referenced_column || :id
+
+    drop_sql =
+      "ALTER TABLE #{quote_ident(table_name)} DROP CONSTRAINT IF EXISTS #{quote_ident(constraint_name)};"
+
+    add_sql =
+      "ALTER TABLE #{quote_ident(table_name)} ADD FOREIGN KEY (#{quote_ident(column_name)}) REFERENCES #{quote_ident(referenced_table)}(#{quote_ident(ref_col)})#{on_update_sql};"
+
+    drop_sql <> "\n" <> add_sql
+  end
+
+  defp alter_column_change_sql(table_name, _column_name, {:drop_fk, constraint_name}) do
+    "ALTER TABLE #{quote_ident(table_name)} DROP CONSTRAINT IF EXISTS #{quote_ident(constraint_name)};"
   end
 
   defp alter_column_change_sql(table_name, column_name, {:size, size, :string})
@@ -288,18 +348,31 @@ defmodule PgPushex.SQL.Postgres do
 
   defp references_fragment(%Column{references: nil}, _table_name), do: []
 
-  defp references_fragment(%Column{references: table, name: column_name}, table_struct) do
+  defp references_fragment(
+         %Column{references: table, name: column_name, referenced_column: col_ref},
+         table_struct
+       ) do
     # Here table_struct is the Table where this column resides.
     # We need to find the ForeignKey struct to get on_delete rule.
     fk = Enum.find(table_struct.foreign_keys, &(&1.column_name == column_name))
+
+    # Use referenced_column from ForeignKey if available, otherwise from Column, default to :id
+    ref_col =
+      if fk do
+        fk.referenced_column || :id
+      else
+        col_ref || :id
+      end
 
     if fk do
       on_delete_sql = fk_action_sql("DELETE", fk.on_delete)
       on_update_sql = fk_action_sql("UPDATE", fk.on_update)
 
-      ["REFERENCES #{quote_ident(fk.referenced_table)}(id)#{on_delete_sql}#{on_update_sql}"]
+      [
+        "REFERENCES #{quote_ident(fk.referenced_table)}(#{quote_ident(ref_col)})#{on_delete_sql}#{on_update_sql}"
+      ]
     else
-      ["REFERENCES #{quote_ident(table)}(id)"]
+      ["REFERENCES #{quote_ident(table)}(#{quote_ident(ref_col)})"]
     end
   end
 
@@ -324,6 +397,11 @@ defmodule PgPushex.SQL.Postgres do
 
   defp pg_type(%Column{type: :string, size: size}, _table) when is_integer(size) and size > 0 do
     "varchar(#{size})"
+  end
+
+  defp pg_type(%Column{type: :decimal, precision: p, scale: s}, _table)
+       when is_integer(p) and is_integer(s) and p > 0 and s >= 0 do
+    "numeric(#{p},#{s})"
   end
 
   defp pg_type(%Column{type: type, enum: enum_values} = column, table) do

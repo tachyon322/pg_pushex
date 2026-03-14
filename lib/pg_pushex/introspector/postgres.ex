@@ -30,6 +30,8 @@ defmodule PgPushex.Introspector.Postgres do
     c.column_default,
     c.is_identity,
     c.character_maximum_length,
+    c.numeric_precision,
+    c.numeric_scale,
     EXISTS (
       SELECT 1
       FROM information_schema.table_constraints tc
@@ -89,9 +91,11 @@ defmodule PgPushex.Introspector.Postgres do
 
   @fk_metadata_sql """
   SELECT
+    tc.constraint_name,
     kcu.table_name,
     kcu.column_name,
     ccu.table_name AS referenced_table,
+    ccu.column_name AS referenced_column,
     rc.delete_rule,
     rc.update_rule
   FROM information_schema.table_constraints tc
@@ -187,11 +191,21 @@ defmodule PgPushex.Introspector.Postgres do
     %{rows: rows} = query!(repo_or_conn, @fk_metadata_sql)
 
     rows
-    |> Enum.group_by(fn [table_name, _, _, _, _] -> table_name end)
+    |> Enum.group_by(fn [_, table_name, _, _, _, _, _] -> table_name end)
     |> Map.new(fn {table_name, fk_rows} ->
       col_refs =
-        Map.new(fk_rows, fn [_, col_name, ref_table, delete_rule, update_rule] ->
-          {col_name, {ref_table, parse_action_rule(delete_rule), parse_action_rule(update_rule)}}
+        Map.new(fk_rows, fn [
+                              constraint_name,
+                              _,
+                              col_name,
+                              ref_table,
+                              ref_col,
+                              delete_rule,
+                              update_rule
+                            ] ->
+          {col_name,
+           {constraint_name, ref_table, ref_col, parse_action_rule(delete_rule),
+            parse_action_rule(update_rule)}}
         end)
 
       {table_name, col_refs}
@@ -220,10 +234,12 @@ defmodule PgPushex.Introspector.Postgres do
               nil ->
                 col
 
-              {ref_table, delete_rule, update_rule} ->
+              {constraint_name, ref_table, ref_col, delete_rule, update_rule} ->
                 %{
                   col
                   | references: String.to_atom(ref_table),
+                    referenced_column: String.to_atom(ref_col),
+                    constraint_name: constraint_name,
                     on_delete: delete_rule,
                     on_update: update_rule
                 }
@@ -232,11 +248,13 @@ defmodule PgPushex.Introspector.Postgres do
 
         foreign_keys =
           table_fks_map
-          |> Enum.map(fn {col_name, {ref_table, delete_rule, update_rule}} ->
+          |> Enum.map(fn {col_name,
+                          {constraint_name, ref_table, ref_col, delete_rule, update_rule}} ->
             %PgPushex.State.ForeignKey{
+              constraint_name: constraint_name,
               column_name: String.to_atom(col_name),
               referenced_table: String.to_atom(ref_table),
-              referenced_column: :id,
+              referenced_column: String.to_atom(ref_col),
               on_delete: delete_rule,
               on_update: update_rule
             }
@@ -264,6 +282,8 @@ defmodule PgPushex.Introspector.Postgres do
     default = Map.get(row_map, "column_default")
     identity = identity?(Map.get(row_map, "is_identity"))
     char_max_length = Map.get(row_map, "character_maximum_length")
+    numeric_precision = Map.get(row_map, "numeric_precision")
+    numeric_scale = Map.get(row_map, "numeric_scale")
     atttypmod = Map.get(row_map, "atttypmod")
     generation_expression = Map.get(row_map, "generation_expression")
 
@@ -291,6 +311,9 @@ defmodule PgPushex.Introspector.Postgres do
             expr -> {:fragment, expr}
           end
 
+        precision = if type == :decimal, do: numeric_precision, else: nil
+        scale = if type == :decimal, do: numeric_scale, else: nil
+
         column = %Column{
           name: column_name,
           type: type,
@@ -299,6 +322,8 @@ defmodule PgPushex.Introspector.Postgres do
           primary_key: primary_key,
           enum: enum_values,
           size: size,
+          precision: precision,
+          scale: scale,
           generated_as: generated_as
         }
 
@@ -315,6 +340,10 @@ defmodule PgPushex.Introspector.Postgres do
 
   defp resolve_column_type("USER-DEFINED", _default, _identity, "vector", _enum_map) do
     {{:ok, :vector}, nil}
+  end
+
+  defp resolve_column_type("USER-DEFINED", _default, _identity, "citext", _enum_map) do
+    {{:ok, :citext}, nil}
   end
 
   defp resolve_column_type("USER-DEFINED", _default, _identity, udt_name, enum_map) do
@@ -353,6 +382,7 @@ defmodule PgPushex.Introspector.Postgres do
   defp map_column_type("timestamp with time zone", _default, _identity), do: {:ok, :utc_datetime}
   defp map_column_type("bytea", _default, _identity), do: {:ok, :binary}
   defp map_column_type("jsonb", _default, _identity), do: {:ok, :map}
+  defp map_column_type("tsvector", _default, _identity), do: {:ok, :tsvector}
   defp map_column_type(_type, _default, _identity), do: :skip
 
   defp parse_default(_default, :serial, _identity, _primary_key), do: nil
@@ -364,6 +394,14 @@ defmodule PgPushex.Introspector.Postgres do
     if sequence_default?(default), do: nil, else: parse_literal_or_expression(default)
   end
 
+  defp parse_default(default, type, _identity, _primary_key)
+       when type in [:utc_datetime, :naive_datetime, :date, :time] do
+    case normalize_timestamp_expression(default) do
+      "now()" -> {:fragment, "now()"}
+      _ -> parse_literal_or_expression(default)
+    end
+  end
+
   defp parse_default(default, _type, _identity, _primary_key),
     do: parse_literal_or_expression(default)
 
@@ -372,7 +410,37 @@ defmodule PgPushex.Introspector.Postgres do
 
     case parse_literal(expression) do
       {:ok, value} -> value
-      :error -> {:fragment, expression}
+      :error -> {:fragment, normalize_timestamp_expression(expression)}
+    end
+  end
+
+  # Normalizes timestamp expressions to a standard "now()" format
+  defp normalize_timestamp_expression(expression) when is_binary(expression) do
+    normalized =
+      expression
+      |> String.downcase()
+      |> String.trim()
+
+    cond do
+      # Direct now() call
+      normalized == "now()" ->
+        "now()"
+
+      # CURRENT_TIMESTAMP variants
+      normalized in ["current_timestamp", "current_timestamp()"] ->
+        "now()"
+
+      # timezone('utc', now()) or similar
+      String.starts_with?(normalized, "timezone(") ->
+        "now()"
+
+      # ('now'::text)::timestamp with time zone - standard PostgreSQL form
+      String.contains?(normalized, "'now'") ->
+        "now()"
+
+      # All other cases - return as is
+      true ->
+        expression
     end
   end
 

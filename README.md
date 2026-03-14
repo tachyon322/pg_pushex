@@ -180,6 +180,7 @@ end
 | `:default` | any | Default value | `default: "pending"` |
 | `:primary_key` | boolean | Mark as primary key | `primary_key: true` |
 | `:references` | atom | Foreign key reference | `references: :users` |
+| `:referenced_column` | atom | FK reference column (default: `:id`) | `referenced_column: :email` |
 | `:on_delete` | atom | FK delete action | `on_delete: :delete_all` |
 | `:on_update` | atom | FK update action | `on_update: :update_all` |
 | `:size` | integer | String/vector size | `size: 255` |
@@ -212,18 +213,21 @@ end
 table :comments do
   column :id, :uuid, primary_key: true
   column :body, :text
-  
+
   # Simple FK
   column :post_id, :uuid, references: :posts
-  
+
   # FK with cascade delete
   column :author_id, :uuid, references: :users, on_delete: :delete_all
-  
+
   # FK with custom actions
-  column :editor_id, :uuid, 
-    references: :users, 
+  column :editor_id, :uuid,
+    references: :users,
     on_delete: :nilify_all,
     on_update: :restrict
+
+  # FK referencing a non-primary key column (must be UNIQUE)
+  column :user_email, :string, references: :users, referenced_column: :email
 end
 ```
 

@@ -59,7 +59,7 @@ defmodule PgPushex.MigratorTest do
 
       [
         "ALTER TABLE \"users\" ADD COLUMN \"email\" text;",
-        "DROP TABLE \"legacy_users\";"
+        "DROP TABLE \"legacy_users\" CASCADE;"
       ]
     end
   end
@@ -138,7 +138,7 @@ defmodule PgPushex.MigratorTest do
       assert_received :transaction_called
 
       assert_received {:sql_executed, "ALTER TABLE \"users\" ADD COLUMN \"email\" text;"}
-      assert_received {:sql_executed, "DROP TABLE \"legacy_users\";"}
+      assert_received {:sql_executed, "DROP TABLE \"legacy_users\" CASCADE;"}
 
       assert log =~ "Applying changes..."
       assert log =~ "Executing:"

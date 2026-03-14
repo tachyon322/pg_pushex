@@ -386,7 +386,11 @@ defmodule PgPushex.Diff do
         if current_fk && desired_fk &&
              normalize_fk_action(current_fk.on_delete) !=
                normalize_fk_action(desired_fk.on_delete) do
-          changes ++ [{:on_delete, desired_fk.on_delete, desired_fk.referenced_table}]
+          changes ++
+            [
+              {:on_delete, desired_fk.on_delete, desired_fk.referenced_table,
+               desired_fk.referenced_column, current_fk.constraint_name}
+            ]
         else
           changes
         end
@@ -395,7 +399,19 @@ defmodule PgPushex.Diff do
         if current_fk && desired_fk &&
              normalize_fk_action(current_fk.on_update) !=
                normalize_fk_action(desired_fk.on_update) do
-          changes ++ [{:on_update, desired_fk.on_update, desired_fk.referenced_table}]
+          changes ++
+            [
+              {:on_update, desired_fk.on_update, desired_fk.referenced_table,
+               desired_fk.referenced_column, current_fk.constraint_name}
+            ]
+        else
+          changes
+        end
+
+      # Check if foreign key is being removed
+      changes =
+        if current_fk && is_nil(desired_fk) && current_fk.constraint_name do
+          changes ++ [{:drop_fk, current_fk.constraint_name}]
         else
           changes
         end

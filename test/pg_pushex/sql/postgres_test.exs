@@ -22,8 +22,25 @@ defmodule PgPushex.SQL.PostgresTest do
                ]
     end
 
+    test "generates create table SQL with decimal precision/scale" do
+      table =
+        %Table{
+          name: :products,
+          columns: [
+            %Column{name: :id, type: :uuid, primary_key: true, null: false},
+            %Column{name: :price, type: :decimal, precision: 10, scale: 2, null: false},
+            %Column{name: :weight, type: :decimal, precision: 8, scale: 3}
+          ]
+        }
+
+      assert Postgres.generate([{:create_table, :products, table}]) ==
+               [
+                 ~s|CREATE TABLE "products" ("id" uuid NOT NULL, "price" numeric(10,2) NOT NULL, "weight" numeric(8,3), PRIMARY KEY ("id"));|
+               ]
+    end
+
     test "generates drop table SQL" do
-      assert Postgres.generate([{:drop_table, :users}]) == [~s|DROP TABLE "users";|]
+      assert Postgres.generate([{:drop_table, :users}]) == [~s|DROP TABLE "users" CASCADE;|]
     end
 
     test "generates add column SQL" do
@@ -141,7 +158,7 @@ defmodule PgPushex.SQL.PostgresTest do
 
       [sql] = Postgres.generate([{:create_table, :comments, table}])
 
-      assert sql =~ ~s|REFERENCES "posts"(id) ON DELETE CASCADE|
+      assert sql =~ ~s|REFERENCES "posts"("id") ON DELETE CASCADE|
     end
 
     test "generates CREATE TABLE with FK and on_delete set_null" do
@@ -209,17 +226,73 @@ defmodule PgPushex.SQL.PostgresTest do
 
       [sql] = Postgres.generate([{:add_column, :comments, column}])
 
-      assert sql =~ ~s|REFERENCES "posts"(id) ON DELETE CASCADE|
+      assert sql =~ ~s|REFERENCES "posts"("id") ON DELETE CASCADE|
     end
 
-    test "generates alter_column with on_delete change (comment only)" do
+    test "generates alter_column with on_delete change (no existing constraint)" do
       [sql] =
         Postgres.generate([
-          {:alter_column, :comments, :post_id, [{:on_delete, :restrict, :posts}]}
+          {:alter_column, :comments, :post_id, [{:on_delete, :restrict, :posts, :id, nil}]}
         ])
 
-      assert sql =~ ~s|-- Note:|
       assert sql =~ ~s|ADD FOREIGN KEY|
+      assert sql =~ ~s|ON DELETE RESTRICT|
+    end
+
+    test "generates alter_column with on_delete change (with existing constraint)" do
+      [sql] =
+        Postgres.generate([
+          {:alter_column, :comments, :post_id,
+           [{:on_delete, :restrict, :posts, :id, "comments_post_id_fkey"}]}
+        ])
+
+      assert sql =~ ~s|DROP CONSTRAINT IF EXISTS "comments_post_id_fkey"|
+      assert sql =~ ~s|ADD FOREIGN KEY|
+      assert sql =~ ~s|ON DELETE RESTRICT|
+    end
+
+    test "generates CREATE TABLE with FK on non-PK column and index" do
+      table = %Table{
+        name: :user_sessions,
+        columns: [
+          %Column{name: :id, type: :serial, primary_key: true},
+          %Column{
+            name: :user_email,
+            type: :string,
+            references: :users,
+            referenced_column: :email,
+            on_delete: :delete_all
+          }
+        ],
+        foreign_keys: [
+          %ForeignKey{
+            column_name: :user_email,
+            referenced_table: :users,
+            referenced_column: :email,
+            on_delete: :delete_all,
+            on_update: :nothing
+          }
+        ],
+        indexes: [
+          %PgPushex.State.Index{
+            name: :user_sessions_email_index,
+            columns: [:user_email],
+            unique: false
+          }
+        ]
+      }
+
+      sqls = Postgres.generate([{:create_table, :user_sessions, table}])
+
+      # Should generate CREATE TABLE and CREATE INDEX
+      assert length(sqls) == 2
+
+      [create_table_sql, create_index_sql] = sqls
+
+      assert create_table_sql =~ ~s|REFERENCES "users"("email") ON DELETE CASCADE|
+
+      assert create_index_sql =~
+               ~s|CREATE INDEX "user_sessions_email_index" ON "user_sessions" ("user_email")|
     end
   end
 

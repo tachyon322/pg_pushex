@@ -68,8 +68,11 @@ defmodule PgPushex.Schema do
     :default,
     :primary_key,
     :references,
+    :referenced_column,
     :enum,
     :size,
+    :precision,
+    :scale,
     :on_delete,
     :on_update,
     :generated_as
@@ -358,6 +361,9 @@ defmodule PgPushex.Schema do
       on_update =
         if(references != nil, do: Keyword.get(column_opts, :on_update, :nothing), else: :nothing)
 
+      referenced_column =
+        if(references != nil, do: Keyword.get(column_opts, :referenced_column, :id), else: nil)
+
       column = %PgPushex.State.Column{
         name: column_name,
         type: column_type,
@@ -365,8 +371,11 @@ defmodule PgPushex.Schema do
         default: Keyword.get(column_opts, :default, nil),
         primary_key: is_pk,
         references: references,
+        referenced_column: referenced_column,
         enum: enum_values,
         size: Keyword.get(column_opts, :size, nil),
+        precision: Keyword.get(column_opts, :precision, nil),
+        scale: Keyword.get(column_opts, :scale, nil),
         generated_as: generated_as,
         on_delete: on_delete,
         on_update: on_update
@@ -386,10 +395,13 @@ defmodule PgPushex.Schema do
                 ":on_update option must be one of [:nothing, :update_all, :nilify_all, :restrict] for #{inspect(__MODULE__)}.#{inspect(current_table)}.#{inspect(column_name)}, got: #{inspect(on_update)}"
         end
 
+        referenced_column = Keyword.get(column_opts, :referenced_column, :id)
+
         fk = %PgPushex.State.ForeignKey{
+          constraint_name: nil,
           column_name: column_name,
           referenced_table: references,
-          referenced_column: :id,
+          referenced_column: referenced_column,
           on_delete: on_delete,
           on_update: on_update
         }
@@ -407,7 +419,7 @@ defmodule PgPushex.Schema do
   Adds automatic timestamp columns to the table.
 
   Creates `inserted_at` and `updated_at` columns with the specified type.
-  Both columns are non-nullable and have no default value.
+  Both columns are non-nullable and have a default value of `NOW()`.
 
   ## Options
 
@@ -431,12 +443,14 @@ defmodule PgPushex.Schema do
       inserted_at = Keyword.get(unquote(opts), :inserted_at, true)
       updated_at = Keyword.get(unquote(opts), :updated_at, true)
 
+      timestamp_default = {:fragment, "now()"}
+
       if inserted_at do
         col_inserted = %PgPushex.State.Column{
           name: :inserted_at,
           type: type,
           null: false,
-          default: nil,
+          default: timestamp_default,
           primary_key: false,
           references: nil,
           enum: nil,
@@ -454,7 +468,7 @@ defmodule PgPushex.Schema do
           name: :updated_at,
           type: type,
           null: false,
-          default: nil,
+          default: timestamp_default,
           primary_key: false,
           references: nil,
           enum: nil,

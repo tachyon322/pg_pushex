@@ -7,7 +7,8 @@ defmodule PgPushex.State.ForeignKey do
   """
 
   @enforce_keys [:column_name, :referenced_table, :referenced_column, :on_delete, :on_update]
-  defstruct column_name: nil,
+  defstruct constraint_name: nil,
+            column_name: nil,
             referenced_table: nil,
             referenced_column: nil,
             on_delete: :nothing,
@@ -30,8 +31,12 @@ defmodule PgPushex.State.ForeignKey do
   @type on_update_action ::
           :nothing | :cascade | :restrict | :set_null | :update_all | :nilify_all
 
+  @typedoc "Name of the constraint as stored in PostgreSQL, or nil if not yet created."
+  @type constraint_name :: String.t() | nil
+
   @typedoc "Foreign key struct type."
   @type t :: %__MODULE__{
+          constraint_name: constraint_name(),
           column_name: column_name(),
           referenced_table: table_name(),
           referenced_column: referenced_column_name(),

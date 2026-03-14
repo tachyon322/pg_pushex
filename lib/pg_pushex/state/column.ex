@@ -13,8 +13,12 @@ defmodule PgPushex.State.Column do
             default: nil,
             primary_key: false,
             references: nil,
+            referenced_column: nil,
+            constraint_name: nil,
             enum: nil,
             size: nil,
+            precision: nil,
+            scale: nil,
             generated_as: nil,
             on_delete: :nothing,
             on_update: :nothing
@@ -37,11 +41,23 @@ defmodule PgPushex.State.Column do
   @typedoc "Referenced table name for foreign keys, or nil."
   @type references_table :: atom() | nil
 
+  @typedoc "Referenced column name for foreign keys, defaults to :id."
+  @type referenced_column_name :: atom() | nil
+
+  @typedoc "Name of the foreign key constraint in PostgreSQL, or nil."
+  @type constraint_name :: String.t() | nil
+
   @typedoc "List of enum values for enum columns, or nil."
   @type enum_values :: [String.t()] | nil
 
   @typedoc "Size constraint (e.g., varchar length), or nil."
   @type size_val :: integer() | nil
+
+  @typedoc "Precision for numeric/decimal columns, or nil."
+  @type precision_val :: integer() | nil
+
+  @typedoc "Scale for numeric/decimal columns, or nil."
+  @type scale_val :: integer() | nil
 
   @typedoc "Generated column expression as `{:fragment, sql}`, or nil."
   @type generated_as_val :: nil | {:fragment, String.t()}
@@ -69,8 +85,12 @@ defmodule PgPushex.State.Column do
           default: default_value(),
           primary_key: primary_key_flag(),
           references: references_table(),
+          referenced_column: referenced_column_name(),
+          constraint_name: constraint_name(),
           enum: enum_values(),
           size: size_val(),
+          precision: precision_val(),
+          scale: scale_val(),
           generated_as: generated_as_val(),
           on_delete: fk_action(),
           on_update: fk_action()

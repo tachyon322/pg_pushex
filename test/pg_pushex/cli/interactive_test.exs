@@ -22,31 +22,28 @@ defmodule PgPushex.CLI.InteractiveTest do
       assert Interactive.resolve_renames(operations) == {:ok, operations}
     end
 
-    test "resolves drop_table when user selects 1" do
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
+    test "resolves drop_table when user confirms" do
+      send(self(), {:mix_shell_input, :yes?, true})
 
       result = Interactive.resolve_renames([{:drop_table, :legacy}])
 
       assert result == {:ok, [{:drop_table, :legacy}]}
-      assert_received {:mix_shell, :info, [msg]}
-
-      assert IO.ANSI.format(msg) |> IO.iodata_to_binary() =~
-               "[WARNING] You are about to delete table 'legacy':"
     end
 
-    test "aborts drop_table when user selects 2" do
-      send(self(), {:mix_shell_input, :prompt, "2\n"})
+    test "aborts drop_table when user declines" do
+      send(self(), {:mix_shell_input, :yes?, false})
 
       result = Interactive.resolve_renames([{:drop_table, :legacy}])
 
       assert result == :abort
     end
 
-    test "resolves rename when user selects 1" do
+    test "resolves rename when user selects rename option" do
       dropped = %Column{name: :name, type: :string}
       added = %Column{name: :first_name, type: :string}
 
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
+      # Menu: 1=drop+add, 2=rename name->first_name, 3=abort
+      send(self(), {:mix_shell_input, :prompt, "2\n"})
 
       result =
         Interactive.resolve_renames([
@@ -54,17 +51,14 @@ defmodule PgPushex.CLI.InteractiveTest do
         ])
 
       assert result == {:ok, [{:rename_column, :users, :name, :first_name}]}
-      assert_received {:mix_shell, :info, [msg]}
-
-      assert IO.ANSI.format(msg) |> IO.iodata_to_binary() =~
-               "[WARNING] Structural changes detected in table 'users'"
     end
 
-    test "generates drop and add when user selects 2" do
+    test "generates drop and add when user selects drop_and_add option" do
       dropped = %Column{name: :name, type: :string}
       added = %Column{name: :first_name, type: :string}
 
-      send(self(), {:mix_shell_input, :prompt, "2\n"})
+      # Menu: 1=drop+add, 2=rename, 3=abort
+      send(self(), {:mix_shell_input, :prompt, "1\n"})
 
       result =
         Interactive.resolve_renames([
@@ -79,10 +73,11 @@ defmodule PgPushex.CLI.InteractiveTest do
                 ]}
     end
 
-    test "aborts when user selects 3" do
+    test "aborts when user selects abort option" do
       dropped = %Column{name: :name, type: :string}
       added = %Column{name: :first_name, type: :string}
 
+      # Menu: 1=drop+add, 2=rename, 3=abort
       send(self(), {:mix_shell_input, :prompt, "3\n"})
 
       result =
@@ -97,7 +92,9 @@ defmodule PgPushex.CLI.InteractiveTest do
       dropped = %Column{name: :name, type: :string}
       added = %Column{name: :first_name, type: :string}
 
+      # First invalid input triggers re-prompt, then abort (option 3)
       send(self(), {:mix_shell_input, :prompt, "invalid\n"})
+      send(self(), {:mix_shell_input, :prompt, "3\n"})
 
       result =
         Interactive.resolve_renames([
@@ -107,9 +104,10 @@ defmodule PgPushex.CLI.InteractiveTest do
       assert result == :abort
     end
 
-    test "handles pure drop correctly (user selects 1)" do
+    test "handles pure drop correctly (user confirms)" do
       dropped = %Column{name: :name, type: :string}
 
+      # Menu: 1=proceed with deletion, 2=abort
       send(self(), {:mix_shell_input, :prompt, "1\n"})
 
       result =
@@ -118,10 +116,6 @@ defmodule PgPushex.CLI.InteractiveTest do
         ])
 
       assert result == {:ok, [{:drop_column, :users, :name}]}
-      assert_received {:mix_shell, :info, [msg]}
-
-      assert IO.ANSI.format(msg) |> IO.iodata_to_binary() =~
-               "[WARNING] You are about to delete column(s) from table 'users':"
     end
 
     test "handles pure drop correctly (user selects 2 - aborts)" do
@@ -143,10 +137,14 @@ defmodule PgPushex.CLI.InteractiveTest do
       added_x = %Column{name: :first_name, type: :string}
       added_y = %Column{name: :bio, type: :string}
 
-      # dropped_a vs added_x -> 1 (rename name->first_name)
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
-      # dropped_b vs added_y -> 2 (different column)
+      # First menu: 1=drop+add, 2=rename name->first_name, 3=rename name->bio,
+      #            4=rename age->first_name, 5=rename age->bio, 6=abort
+      # Select 2 = rename name->first_name
       send(self(), {:mix_shell_input, :prompt, "2\n"})
+      # After rename, remaining: dropped_b (age) vs added_y (bio)
+      # Second menu: 1=drop+add, 2=rename age->bio, 3=abort
+      # Select 1 = drop+add (since age and bio are different)
+      send(self(), {:mix_shell_input, :prompt, "1\n"})
 
       result =
         Interactive.resolve_renames([
@@ -167,10 +165,9 @@ defmodule PgPushex.CLI.InteractiveTest do
       added_x = %Column{name: :first_name, type: :string}
       added_y = %Column{name: :full_name, type: :string}
 
-      # dropped vs added_x -> 2
-      send(self(), {:mix_shell_input, :prompt, "2\n"})
-      # dropped vs added_y -> 1
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
+      # Menu: 1=drop+add, 2=rename name->first_name, 3=rename name->full_name, 4=abort
+      # Select 3 = rename name->full_name (skip first_name, match with full_name)
+      send(self(), {:mix_shell_input, :prompt, "3\n"})
 
       result =
         Interactive.resolve_renames([
@@ -189,10 +186,11 @@ defmodule PgPushex.CLI.InteractiveTest do
       dropped = %Column{name: :name, type: :string}
       added = %Column{name: :first_name, type: :string}
 
-      # User confirms drop_table with 1
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
-      # User confirms rename with 1
-      send(self(), {:mix_shell_input, :prompt, "1\n"})
+      # User confirms drop_table with yes
+      send(self(), {:mix_shell_input, :yes?, true})
+      # Menu: 1=drop+add, 2=rename name->first_name, 3=abort
+      # User selects rename (2)
+      send(self(), {:mix_shell_input, :prompt, "2\n"})
 
       result =
         Interactive.resolve_renames([

@@ -340,8 +340,8 @@ defmodule PgPushex.MigrationGenerator do
         {:size, val, _type} -> [size: val]
         {:generated_as, _} -> []
         {:references, _} -> []
-        {:on_delete, _, _} -> []
-        {:on_update, _, _} -> []
+        {:on_delete, _, _, _, _} -> []
+        {:on_update, _, _, _, _} -> []
         _ -> []
       end)
 
@@ -377,6 +377,14 @@ defmodule PgPushex.MigrationGenerator do
   defp build_references_expr(%Column{} = col, fk) do
     ref_type = reference_type(col.type)
     ref_opts = ["type: :#{ref_type}"]
+
+    # Add referenced_column if it's not the default :id
+    ref_opts =
+      if fk && fk.referenced_column && fk.referenced_column != :id do
+        ref_opts ++ ["column: :#{fk.referenced_column}"]
+      else
+        ref_opts
+      end
 
     ref_opts =
       if fk && ecto_fk_action(fk.on_delete) do
@@ -427,6 +435,11 @@ defmodule PgPushex.MigrationGenerator do
   defp pg_type(%Column{type: :boolean}), do: "boolean"
   defp pg_type(%Column{type: :bool}), do: "boolean"
   defp pg_type(%Column{type: :float}), do: "double precision"
+
+  defp pg_type(%Column{type: :decimal, precision: p, scale: s})
+       when is_integer(p) and is_integer(s) and p > 0 and s >= 0,
+       do: "numeric(#{p},#{s})"
+
   defp pg_type(%Column{type: :decimal}), do: "numeric"
   defp pg_type(%Column{type: :date}), do: "date"
   defp pg_type(%Column{type: :time}), do: "time"
